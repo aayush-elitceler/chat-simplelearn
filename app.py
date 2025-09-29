@@ -38,7 +38,7 @@ async def root():
     """
     Root endpoint - Public endpoint (no authentication required)
     """
-    return {"message": "Welcome to NOUI API!", "status": "running"}
+    return {"message": "Welcome", "status": "running"}
 
 @app.get("/health")
 async def health_check():
