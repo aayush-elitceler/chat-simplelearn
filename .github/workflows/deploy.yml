@@ -1,0 +1,81 @@
+name: Build and Deploy to Docker Hub
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Repo
+        uses: actions/checkout@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: aayushsharma100/simplelearnchat:latest
+
+      - name: Verify Pushed Image
+        run: docker pull aayushsharma100/simplelearnchat:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Deploy to GCP VM
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            # Create credentials file with proper JSON formatting
+            echo '${{ secrets.GCS_CREDENTIALS_JSON }}' > gcs-credentials.json
+
+            # Verify the file was created properly
+            ls -la gcs-credentials.json
+            echo "File contents (first 100 chars):"
+            head -c 100 gcs-credentials.json
+
+            sudo docker image prune -f
+            sudo docker pull aayushsharma100/simplelearnchat:latest
+            sudo docker stop simplelearnchat || true
+            sudo docker rm simplelearnchat || true
+            sudo docker run -d \
+              --name simplelearnchat \
+              --restart always \
+              -p 8000:8000 \
+              -e GCS_BUCKET_NAME="${{ secrets.GCS_BUCKET_NAME }}" \
+              -e GCS_PROJECT_ID="${{ secrets.GCS_PROJECT_ID }}" \
+              -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+              -e JWT_ALGORITHM="HS256" \
+              -e JWT_EXPIRATION_HOURS="24" \
+              -e MILVUS_URI="${{ secrets.MILVUS_URI }}" \
+              -e MILVUS_TOKEN="${{ secrets.MILVUS_TOKEN }}" \
+              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              -e SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+              -e SUPABASE_KEY="${{ secrets.SUPABASE_KEY }}" \
+              -e APP_NAME="AITUTOR API" \
+              -e DEBUG="true" \
+              -e HOST="0.0.0.0" \
+              -e PORT="8000" \
+              -v $(pwd)/gcs-credentials.json:/app/gcs-credentials.json:ro \
+              -e GCS_CREDENTIALS_PATH="/app/gcs-credentials.json" \
+              aayushsharma100/simplelearnchat:latest
