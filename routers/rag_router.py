@@ -25,6 +25,82 @@ router = APIRouter(
 )
 
 
+CURATED_TOPIC_LINKS = {
+    # CBSE Biology
+    "diversity in living world": [
+        "https://www.youtube.com/watch?v=OIgBF5LdCd0",
+    ],
+    "life processes in animals": [
+        "https://www.youtube.com/watch?v=gxxFGK-DTI0",
+    ],
+    "invisible living world": [
+        "https://www.youtube.com/watch?v=cK38TmQVubk",
+    ],
+    # CBSE Chemistry
+    "materials around us": [
+        "https://www.youtube.com/watch?v=fssBfBdUJM&list=PLgnue5NFkOvVax08ucuSg_dhQamB5iUHm",
+    ],
+    "changes around us": [
+        "https://www.youtube.com/watch?v=_FnAZxpGuZo",
+    ],
+    "nature of matter": [
+        "https://www.youtube.com/watch?v=DTlRWVMnSYQ",
+    ],
+    "elements and compounds": [
+        "https://www.youtube.com/watch?v=neOmNQrz88M",
+    ],
+    # Cambridge Grade 6-8 Physics/Chemistry topics
+    "atoms": [
+        "https://www.youtube.com/watch?v=jMW_0Ro6b5c",
+    ],
+    "atomic structures": [
+        "https://www.youtube.com/watch?v=4QblYo-XeoY&list=PL3GBdsS--0-SsR0XRAhFyz7ooQkOasfyW&index=19",
+    ],
+    "sub atomic particles": [
+        "https://www.youtube.com/watch?v=0_RQ9wb2ZPg",
+    ],
+    "thompson and rutherford model": [
+        "https://www.youtube.com/watch?v=4Z-cWHC3Ioc",
+    ],
+    # Activities
+    "building atomic model": [
+        "https://www.youtube.com/watch?v=v48u8hjqNBU",
+        "https://www.youtube.com/watch?v=SUwVYAcEkLE",
+        "https://phet.colorado.edu/en/simulations/build-an-atom",
+    ],
+}
+
+
+def _curated_links_for_question(question: str):
+    if not question:
+        return []
+    q = question.lower()
+    matched = []
+    for topic, links in CURATED_TOPIC_LINKS.items():
+        if topic in q:
+            matched.extend(links)
+    # If nothing matched, try some fuzzy contains for key tokens
+    if not matched:
+        token_map = {
+            "diversity": "diversity in living world",
+            "living world": "diversity in living world",
+            "atoms": "atoms",
+            "atomic structure": "atomic structures",
+            "subatomic": "sub atomic particles",
+            "thompson": "thompson and rutherford model",
+            "rutherford": "thompson and rutherford model",
+            "materials around": "materials around us",
+            "changes around": "changes around us",
+            "elements and compounds": "elements and compounds",
+            "life processes": "life processes in animals",
+        }
+        for key, target in token_map.items():
+            if key in q:
+                matched.extend(CURATED_TOPIC_LINKS.get(target, []))
+    # Deduplicate keep order
+    seen = set()
+    return [u for u in matched if not (u in seen or seen.add(u))]
+
 @router.post("/asyncStreamQuery")
 async def chat_with_rag_stream(
         request: ChatRequest
@@ -103,6 +179,11 @@ async def chat_with_rag_stream(
                         }
                         yield f"data: {json.dumps(chunk_data)}\n\n"
                         full_content += content
+
+                # Append curated links into the final content if the question matches topics
+                curated_links = _curated_links_for_question(final_question)
+                if curated_links:
+                    full_content = f"{full_content}\n\nRecommended Videos:\n" + "\n".join(curated_links)
 
                 final_data = {
                     "type": "complete",
@@ -203,6 +284,10 @@ async def chat_with_rag_stream_v2(
                         }
                         yield f"data: {json.dumps(chunk_data)}\n\n"
                         full_content += chunk.content
+
+                curated_links = _curated_links_for_question(final_question)
+                if curated_links:
+                    full_content = f"{full_content}\n\nRecommended Videos:\n" + "\n".join(curated_links)
 
                 final_data = {
                     "type": "complete",
