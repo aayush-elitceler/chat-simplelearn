@@ -1,5 +1,6 @@
 import re
 import json
+import time
 from fastapi import APIRouter, HTTPException
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -18,6 +19,7 @@ from repository.rags.rags_repo import rags_repo
 from models.rags.rag_models import ChatRequest, CollectionSummaryRequest, CollectionSummaryResponse, \
                                     DeleteCollectionRequest, DeleteCollectionResponse
 from models.rags.rag_models import ChatMessage
+from services.session_service import session_service
 
 router = APIRouter(
     prefix="/api/v1/rag",
@@ -108,7 +110,9 @@ async def chat_with_rag_stream(
     try:
         final_question = request.question
         transcribed_text = None
+        session_id = request.session_id
 
+        # Handle audio transcription
         if request.is_audio:
             if not request.audio_data and not request.audio_url:
                 raise HTTPException(status_code=400, detail="Audio data or URL required when is_audio=True")
@@ -122,11 +126,44 @@ async def chat_with_rag_stream(
         elif not request.question:
             raise HTTPException(status_code=400, detail="Question is required when is_audio=False")
 
-        lc_messages = [
-            HumanMessage(content=msg.content) if msg.role == "user"
-            else AIMessage(content=msg.content)
-            for msg in request.chat_history
-        ]
+        # Session Management
+        if not session_id:
+            # Create new session for first-time users
+            session_id = session_service.create_session(request.collection_name)
+        else:
+            # Validate existing session
+            session = session_service.get_session(session_id)
+            if not session:
+                # Session expired or invalid, create new one
+                session_id = session_service.create_session(request.collection_name)
+            elif session['collection_name'] != request.collection_name:
+                # Update collection if changed
+                session_service.update_session_collection(session_id, request.collection_name)
+
+        # Get chat history from session or use provided history
+        if request.chat_history:
+            # Use provided chat history (for backward compatibility)
+            lc_messages = [
+                HumanMessage(content=msg.content) if msg.role == "user"
+                else AIMessage(content=msg.content)
+                for msg in request.chat_history
+            ]
+        else:
+            # Get chat history from session
+            session_chat_history = session_service.get_chat_history(session_id)
+            lc_messages = [
+                HumanMessage(content=msg.content) if msg.role == "user"
+                else AIMessage(content=msg.content)
+                for msg in session_chat_history
+            ]
+
+        # Add current user message to session
+        user_message = ChatMessage(
+            role="user",
+            content=final_question,
+            sources=None
+        )
+        session_service.add_message_to_session(session_id, user_message)
 
         chain = await rags_repo.aget_chat_chain(
             request.collection_name,
@@ -180,6 +217,23 @@ async def chat_with_rag_stream(
                         yield f"data: {json.dumps(chunk_data)}\n\n"
                         full_content += content
 
+                # Add assistant response to session
+                if full_content:
+                    # Convert sources to the correct format for ChatMessage
+                    formatted_sources = []
+                    for source in sources:
+                        formatted_sources.append({
+                            "type": "source",
+                            "reference": source.get("reference", "")
+                        })
+                    
+                    assistant_message = ChatMessage(
+                        role="assistant",
+                        content=full_content,
+                        sources=formatted_sources
+                    )
+                    session_service.add_message_to_session(session_id, assistant_message)
+
                 # For Cambridge School textbook system, we only provide textbook-based answers
                 # No external curated links are added to maintain strict textbook-only responses
 
@@ -189,6 +243,7 @@ async def chat_with_rag_stream(
                     "content": full_content,
                     "sources": sources,
                     "collection": request.collection_name,
+                    "session_id": session_id,
                     "transcribed_text": transcribed_text if transcribed_text else None
                 }
                 yield f"data: {json.dumps(final_data)}\n\n"
@@ -411,6 +466,58 @@ async def delete_collection(request: DeleteCollectionRequest):
         )
     finally:
         connections.disconnect("default")
+
+
+@router.get("/session/stats")
+async def get_session_stats():
+    """
+    Get session management statistics.
+    
+    Returns:
+        Dict with session statistics including active sessions, total messages, etc.
+    """
+    try:
+        stats = session_service.get_session_stats()
+        return {
+            "status": "success",
+            "data": stats,
+            "timestamp": int(time.time())
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get session stats: {str(e)}")
+
+
+@router.delete("/session/{session_id}")
+async def delete_session(session_id: str):
+    """
+    Delete a specific session.
+    
+    Args:
+        session_id: The session UUID to delete
+        
+    Returns:
+        Dict with deletion status
+    """
+    try:
+        if not session_id:
+            raise HTTPException(status_code=400, detail="Session ID is required")
+            
+        success = session_service.delete_session(session_id)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Session {session_id} deleted successfully",
+                "timestamp": int(time.time())
+            }
+        else:
+            return {
+                "status": "not_found",
+                "message": f"Session {session_id} not found",
+                "timestamp": int(time.time())
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
 
 
 
