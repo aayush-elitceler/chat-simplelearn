@@ -138,7 +138,7 @@ async def chat_with_rag_stream(
             sources = []
 
             try:
-                retriever = rags_repo._get_retriever(request.collection_name)
+                retriever = await rags_repo._aget_retriever(request.collection_name)
                 retrieved_docs = await retriever.ainvoke(final_question)
 
                 for doc in retrieved_docs:
@@ -180,10 +180,8 @@ async def chat_with_rag_stream(
                         yield f"data: {json.dumps(chunk_data)}\n\n"
                         full_content += content
 
-                # Append curated links into the final content if the question matches topics
-                curated_links = _curated_links_for_question(final_question)
-                if curated_links:
-                    full_content = f"{full_content}\n\nRecommended Videos:\n" + "\n".join(curated_links)
+                # For Cambridge School textbook system, we only provide textbook-based answers
+                # No external curated links are added to maintain strict textbook-only responses
 
                 final_data = {
                     "type": "complete",
@@ -285,9 +283,8 @@ async def chat_with_rag_stream_v2(
                         yield f"data: {json.dumps(chunk_data)}\n\n"
                         full_content += chunk.content
 
-                curated_links = _curated_links_for_question(final_question)
-                if curated_links:
-                    full_content = f"{full_content}\n\nRecommended Videos:\n" + "\n".join(curated_links)
+                # For Cambridge School textbook system, we only provide textbook-based answers
+                # No external curated links are added to maintain strict textbook-only responses
 
                 final_data = {
                     "type": "complete",
