@@ -21,7 +21,7 @@ from prompts import get_rag_sys_prompt
 class RagRepo:
     def __init__(self):
         self.llm = ChatOpenAI(
-            model="gpt-3.5-turbo-16k",
+            model="gpt-4o",
             temperature=0.8,
             api_key=settings.OPENAI_API_KEY
         )

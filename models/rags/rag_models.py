@@ -32,7 +32,7 @@ class ChatRequest(BaseModel):
     )
     chat_language: str = Field(None, description="Language in which the chat is generated")
     llm: str = Field(
-        model="gpt-3.5-turbo-16k",
+        model="gpt-4o",
         description="Which LLM to use for generation"
     )
 

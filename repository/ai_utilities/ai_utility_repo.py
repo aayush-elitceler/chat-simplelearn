@@ -14,7 +14,7 @@ import json
 class AiUtilityRepo:
     def __init__(self):
         self.llm = ChatOpenAI(
-            model="gpt-3.5-turbo-16k",
+            model="gpt-4o",
             temperature=0,
             api_key=settings.OPENAI_API_KEY,
         )
