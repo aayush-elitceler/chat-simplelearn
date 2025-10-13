@@ -21,6 +21,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://user.selflearnai.in",
+        "https://sadhana.selflearnai.in",
     ],
     allow_credentials=True,
     allow_methods=["*"],
